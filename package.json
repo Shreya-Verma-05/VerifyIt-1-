@@ -1,0 +1,35 @@
+{
+  "name": "verifyit",
+  "version": "2.0.0",
+  "description": "AI-powered fact-checking and misinformation detection platform",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "install-deps": "npm install"
+  },
+  "keywords": [
+    "ai",
+    "fact-checking",
+    "misinformation",
+    "verification",
+    "huggingface",
+    "llama",
+    "express"
+  ],
+  "author": "VerifyIt Team",
+  "license": "MIT",
+  "dependencies": {
+    "@google-cloud/aiplatform": "^6.4.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "nodemailer": "^6.9.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
