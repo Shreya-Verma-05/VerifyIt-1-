@@ -19,7 +19,8 @@ const {
     getActiveSubscribers,
     incrementAlertsForSubscribers,
     getAlertState,
-    updateAlertState
+    updateAlertState,
+    getStorageMode
 } = require('./db');
 
 const app = express();
@@ -581,9 +582,14 @@ async function startServer() {
     try {
         await initializeDatabase();
         app.listen(PORT, () => {
+            const storageMode = getStorageMode();
+            const storageLabel = storageMode === 'postgres'
+                ? 'Neon PostgreSQL + Drizzle ORM'
+                : 'Local JSON fallback (data/subscribers.json)';
+
             console.log(`🚀 VerifyIt server running on http://localhost:${PORT}`);
             console.log(`🤖 AI Analysis: Enabled (Advanced Pattern Recognition v${AI_SYSTEM_VERSION})`);
-            console.log(`🗄️ Newsletter storage: Neon PostgreSQL + Drizzle ORM`);
+            console.log(`🗄️ Newsletter storage: ${storageLabel}`);
             console.log(`📁 Serving frontend from: ${path.join(__dirname, '../public')}`);
         });
     } catch (error) {

@@ -4,27 +4,29 @@
       "email": "anshsharma.code@gmail.com",
       "subscribedAt": "2026-02-18T17:23:51.495Z",
       "active": true,
-      "alertsReceived": 0
+      "alertsReceived": 1
     },
     {
       "email": "test+bot@example.com",
       "subscribedAt": "2026-02-19T13:28:41.571Z",
       "active": true,
-      "alertsReceived": 0
+      "alertsReceived": 1
     },
     {
       "email": "shreyaverma050407@gmail.com",
       "subscribedAt": "2026-02-19T13:29:18.731Z",
       "active": true,
-      "alertsReceived": 0
+      "alertsReceived": 1
     },
     {
       "email": "kashvisingla189@gmail.com",
       "subscribedAt": "2026-02-20T07:35:22.557Z",
       "active": true,
-      "alertsReceived": 0
+      "alertsReceived": 1
     }
   ],
-  "lastUpdated": "2026-02-20T07:35:22.557Z",
-  "totalSubscribers": 4
+  "lastUpdated": "2026-02-20T19:06:45.590Z",
+  "totalSubscribers": 4,
+  "lastFraudAlertAt": "2026-02-20T19:06:39.867Z",
+  "lastFraudAlertSignature": "db95da2627658a8686e215911b3e0ee84e22978d5564f7e43c1020669fafe8e1"
 }
