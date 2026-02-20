@@ -21,6 +21,7 @@ A beautiful, modern web application that uses artificial intelligence to verify 
 ### Prerequisites
 - **Node.js 16+** - [Download here](https://nodejs.org/)
 - **OpenAI API Key** (optional) - [Get yours here](https://platform.openai.com/api-keys)
+- **Neon PostgreSQL Database URL** - [Create Neon project](https://neon.tech/)
 
 ### Installation
 
@@ -35,8 +36,12 @@ A beautiful, modern web application that uses artificial intelligence to verify 
    ```
 
 3. **Configure environment variables**
-   - Open `.env` file
+   - Open `config/.env` file
    - Replace `your_openai_api_key_here` with your actual OpenAI API key
+   - Add your Neon connection string:
+   ```
+   DATABASE_URL=postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require
+   ```
    - If you don't have an API key, the app will use pattern-based analysis
 
 4. **Start the server**

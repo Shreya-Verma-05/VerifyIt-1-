@@ -17,8 +17,14 @@
       "subscribedAt": "2026-02-19T13:29:18.731Z",
       "active": true,
       "alertsReceived": 0
+    },
+    {
+      "email": "kashvisingla189@gmail.com",
+      "subscribedAt": "2026-02-20T07:35:22.557Z",
+      "active": true,
+      "alertsReceived": 0
     }
   ],
-  "lastUpdated": "2026-02-19T13:29:18.731Z",
-  "totalSubscribers": 3
+  "lastUpdated": "2026-02-20T07:35:22.557Z",
+  "totalSubscribers": 4
 }

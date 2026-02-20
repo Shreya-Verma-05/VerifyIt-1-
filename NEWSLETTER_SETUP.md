@@ -35,10 +35,16 @@
 - **Weekly Reports**: Trend summaries (future feature)
 
 ### Subscriber Management
-- Local JSON storage in `data/subscribers.json`
+- Neon PostgreSQL storage via Drizzle ORM
 - Automatic email validation
 - Unsubscribe functionality
 - Privacy protected
+
+### Database Configuration
+Add this to `config/.env`:
+```env
+DATABASE_URL=postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require
+```
 
 ## 🔧 API Endpoints
 
@@ -86,21 +92,9 @@ GET /api/newsletter/stats
 
 ## 📝 Data Storage
 
-Subscribers are stored in `data/subscribers.json`:
-```json
-{
-  "subscribers": [
-    {
-      "email": "user@example.com",
-      "subscribedAt": "2026-02-18T10:00:00.000Z",
-      "active": true,
-      "alertsReceived": 0
-    }
-  ],
-  "totalSubscribers": 1,
-  "lastUpdated": "2026-02-18T10:00:00.000Z"
-}
-```
+Subscribers are stored in Neon tables:
+- `subscribers(email, subscribed_at, active, alerts_received)`
+- `alert_state(id, last_fraud_alert_at, last_fraud_alert_signature)`
 
 ## 🚨 Troubleshooting
 
@@ -113,14 +107,14 @@ Subscribers are stored in `data/subscribers.json`:
 **Newsletter not working?**
 1. Ensure `NEWSLETTER_ENABLED=true` in .env
 2. Check email credentials are set
-3. Verify JSON file permissions in `data/` folder
+3. Verify `DATABASE_URL` is set and points to your Neon database
 
 ## 💡 Production Recommendations
 
 1. Use dedicated email service (SendGrid, Mailgun)
 2. Implement proper logging
 3. Add email queue for high volume
-4. Database storage instead of JSON
+4. Add explicit migration scripts for schema versioning
 5. Advanced analytics and tracking
 
 ---

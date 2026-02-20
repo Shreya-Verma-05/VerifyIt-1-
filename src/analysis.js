@@ -16,7 +16,11 @@ class TextAnalyzer {
             { pattern: /urgent|act now|limited time|hurry|immediate/gi, weight: 20, name: 'urgency' },
             { pattern: /miracle|guaranteed|100%|never fails|secret|amazing/gi, weight: 15, name: 'hyperbole' },
             { pattern: /free money|get rich|make \$[\d,]+|easy money/gi, weight: 30, name: 'financial scam' },
+            { pattern: /one trick|secret trick|rich overnight|overnight success|no experience needed|no experience required|click now/gi, weight: 28, name: 'classic scam hook' },
+            { pattern: /made me rich|made \w+ rich|passive income in \d+|earn while you sleep/gi, weight: 24, name: 'unrealistic earnings claim' },
             { pattern: /doctors hate|they don't want|hidden truth|conspiracy/gi, weight: 22, name: 'conspiracy language' },
+            { pattern: /hidden evidence|covering up|cover-up|shocking proof|before it's removed|share immediately|government is covering up/gi, weight: 28, name: 'cover-up narrative' },
+            { pattern: /you must act now|save your family|life-saving supplement|being banned|order today|you'?ll regret it|testimonials prove/gi, weight: 30, name: 'fear-pressure sales pitch' },
             { pattern: /click here|call now|act fast|don't miss|limited offer/gi, weight: 18, name: 'call to action' },
             { pattern: /shocking|unbelievable|incredible|amazing|breakthrough/gi, weight: 12, name: 'sensational language' },
             { pattern: /\b(bitcoin|crypto|investment|profit|roi)\b/gi, weight: 16, name: 'investment terms' }
@@ -84,6 +88,7 @@ class TextAnalyzer {
             { pattern: /fear|scared|terrified|panic|worried|anxiety|danger/gi, weight: 12, name: 'fear appeals' },
             { pattern: /angry|outraged|furious|disgusting|hate|evil/gi, weight: 10, name: 'anger induction' },
             { pattern: /you must|you need to|don't let|before it's too late/gi, weight: 15, name: 'pressure tactics' },
+            { pattern: /save your family|you'?ll regret it|act now|share immediately|life-saving|before it'?s removed/gi, weight: 16, name: 'coercive urgency' },
             { pattern: /exclusive|special|chosen|selected|privileged/gi, weight: 8, name: 'exclusivity claims' },
             { pattern: /everyone|nobody|always|never|all|every single/gi, weight: 6, name: 'absolute statements' }
         ];
@@ -227,6 +232,9 @@ function performAdvancedAnalysis(text) {
         const hasFinancialScam = /free money|get rich|make \$[\d,]+|easy money|double your money|make \$\d+/i.test(t);
         const hasUrgency = /urgent|act now|limited time|hurry|immediate|don't miss|act fast/i.test(t);
         const hasDoctorsHate = /doctors hate|doctors don't want|doctors hate this/i.test(t);
+        const hasClassicHook = /one trick|secret trick|rich overnight|overnight success|no experience needed|no experience required|made me rich|click now/i.test(t);
+        const hasCoverupNarrative = /hidden evidence|covering up|cover-up|shocking proof|before it's removed|government is covering up/i.test(t);
+        const hasFamilyPressurePitch = /you must act now|save your family|life-saving supplement|being banned|order today|you'?ll regret it|testimonials prove|miraculous/i.test(t);
         const exclamations = (t.match(/!/g) || []).length;
 
         // If text contains both financial scam language and urgency, force a very low score
@@ -239,8 +247,23 @@ function performAdvancedAnalysis(text) {
             finalScore = Math.min(finalScore, 10);
         }
 
+        // Common social-media scam hooks should score as high-risk even if short text
+        if (hasClassicHook && (hasUrgency || /secret|rich|profit|money/i.test(t))) {
+            finalScore = Math.min(finalScore, 15);
+        }
+
+        // Conspiracy + sensational suppression narrative is commonly fraudulent
+        if (hasCoverupNarrative && (/scientists|government|cure|shocking|share immediately/i.test(t))) {
+            finalScore = Math.min(finalScore, 15);
+        }
+
+        // Family pressure + miracle supplement sales pitch should be marked high risk
+        if (hasFamilyPressurePitch && (hasUrgency || /miraculous|supplement|banned|regret/i.test(t))) {
+            finalScore = Math.min(finalScore, 12);
+        }
+
         // If many exclamations and hyperbole present, reduce score further
-        if (exclamations >= 4 || /guaranteed|100%|never fails|secret trick|miracle/i.test(t)) {
+        if (exclamations >= 4 || /guaranteed|100%|never fails|secret trick|one trick|miracle/i.test(t)) {
             finalScore = Math.min(finalScore, 20);
         }
     } catch (e) {
@@ -258,198 +281,282 @@ function performAdvancedAnalysis(text) {
         score: Math.max(0, Math.min(100, finalScore)),
         verdict,
         analysis: detailedAnalysis,
+        credibilityScore,
+        suspiciousScore,
+        emotionalScore,
+        structureScore,
+        sourceScore,
         indicators: indicators,
-        recommendations: generateRecommendations(verdict)
+        recommendations: generateRecommendations(verdict),
+        aiProvider: 'local-heuristic',
+        aiModel: 'verifyit-v3-local'
     };
 }
 
-// Enhanced AI-like analysis system (no external API dependency)
-    async function analyzeTextWithAI(text) {
-        // If Gemini API is configured, try to call it first
-        const geminiUrl = process.env.GEMINI_API_URL;
-        const geminiKey = process.env.GEMINI_API_KEY;
+function toBoundedNumber(value, defaultValue = 50, min = 0, max = 100) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return defaultValue;
+    return Math.max(min, Math.min(max, Math.round(parsed)));
+}
 
-        // If Gemini SDK (Vertex AI) enabled, try SDK first
-        if (process.env.GEMINI_SDK_ENABLED === 'true' && process.env.GCP_PROJECT && process.env.GCP_LOCATION && process.env.GEMINI_MODEL) {
-            try {
-                const {PredictionServiceClient} = require('@google-cloud/aiplatform').v1;
-                const client = new PredictionServiceClient();
-                const endpoint = `projects/${process.env.GCP_PROJECT}/locations/${process.env.GCP_LOCATION}/endpoints/${process.env.GEMINI_MODEL}`;
-                const instances = [{ content: text }];
-                const request = { endpoint, instances };
-                const [response] = await client.predict(request);
+function getVerdictFromScore(score) {
+    if (score < 35) return 'HIGHLY SUSPICIOUS';
+    if (score > 70) return 'LIKELY LEGITIMATE';
+    return 'PROCEED WITH CAUTION';
+}
 
-                // Try to extract textual output from common fields
-                let candidateText = null;
-                if (response && response.predictions && response.predictions.length > 0) {
-                    const p = response.predictions[0];
-                    if (typeof p === 'string') candidateText = p;
-                    else if (p.content) candidateText = p.content;
-                    else candidateText = JSON.stringify(p);
-                }
+function normalizeAnalysisResult(baseResult, provider, model) {
+    const candidateScore = Number(baseResult.score);
+    const candidateCredibility = Number(baseResult.credibilityScore);
+    let score = Number.isFinite(candidateScore)
+        ? toBoundedNumber(candidateScore, 50)
+        : (Number.isFinite(candidateCredibility) ? toBoundedNumber(candidateCredibility, 50) : 50);
 
-                if (candidateText) {
-                    return parseAIResponseText(candidateText, text);
-                }
-            } catch (sdkErr) {
-                console.warn('Gemini SDK call failed, falling back to HTTP/local analysis:', sdkErr && sdkErr.message ? sdkErr.message : sdkErr);
-                // continue to HTTP or local fallback
+    const verdict = baseResult.verdict || getVerdictFromScore(score);
+
+    if (verdict === 'HIGHLY SUSPICIOUS' && score > 65) {
+        score = 100 - score;
+    }
+    if (verdict === 'LIKELY LEGITIMATE' && score < 35) {
+        score = 100 - score;
+    }
+    const analysis = typeof baseResult.analysis === 'string' && baseResult.analysis.trim()
+        ? baseResult.analysis.trim()
+        : 'Automated analysis completed.';
+
+    const suspiciousScore = toBoundedNumber(
+        baseResult.suspiciousScore,
+        Math.max(0, 100 - score)
+    );
+    const credibilityScore = toBoundedNumber(
+        baseResult.credibilityScore,
+        score
+    );
+    const emotionalScore = toBoundedNumber(
+        baseResult.emotionalScore,
+        Math.min(100, Math.max(0, suspiciousScore))
+    );
+    const structureScore = toBoundedNumber(baseResult.structureScore, 55);
+    const sourceScore = toBoundedNumber(baseResult.sourceScore, 50);
+
+    const indicators = Array.isArray(baseResult.indicators) && baseResult.indicators.length > 0
+        ? baseResult.indicators
+        : extractKeyFindings(analysis);
+
+    return {
+        score,
+        verdict,
+        analysis,
+        credibilityScore,
+        suspiciousScore,
+        emotionalScore,
+        structureScore,
+        sourceScore,
+        indicators,
+        recommendations: generateRecommendations(verdict),
+        aiProvider: provider,
+        aiModel: model
+    };
+}
+
+function extractGeminiText(responseJson) {
+    if (!responseJson || !Array.isArray(responseJson.candidates) || !responseJson.candidates[0]) {
+        return '';
+    }
+
+    const candidate = responseJson.candidates[0];
+    const parts = candidate.content && Array.isArray(candidate.content.parts)
+        ? candidate.content.parts
+        : [];
+
+    return parts
+        .map(part => (typeof part.text === 'string' ? part.text : ''))
+        .join('\n')
+        .trim();
+}
+
+function isAllowedVerdict(verdict) {
+    return verdict === 'HIGHLY SUSPICIOUS' || verdict === 'PROCEED WITH CAUTION' || verdict === 'LIKELY LEGITIMATE';
+}
+
+function isGeminiResultUsable(result) {
+    if (!result || !isAllowedVerdict(result.verdict)) return false;
+    if (!Array.isArray(result.indicators) || result.indicators.length === 0) return false;
+    if (typeof result.analysis !== 'string' || result.analysis.trim().length < 20) return false;
+
+    const trimmed = result.analysis.trim();
+    if (trimmed.startsWith('{') && trimmed.includes('"score"')) return false;
+
+    return true;
+}
+
+function mergeLocalAndGemini(localResult, geminiResult, geminiModel) {
+    let mergedScore = toBoundedNumber((localResult.score * 0.35) + (geminiResult.score * 0.65), localResult.score);
+    const mergedSuspicious = toBoundedNumber((localResult.suspiciousScore * 0.3) + (geminiResult.suspiciousScore * 0.7), localResult.suspiciousScore);
+    const mergedCredibility = toBoundedNumber((localResult.credibilityScore * 0.3) + (geminiResult.credibilityScore * 0.7), localResult.credibilityScore);
+    const mergedEmotional = toBoundedNumber((localResult.emotionalScore * 0.3) + (geminiResult.emotionalScore * 0.7), localResult.emotionalScore);
+    const mergedStructure = toBoundedNumber((localResult.structureScore * 0.4) + (geminiResult.structureScore * 0.6), localResult.structureScore);
+    const mergedSource = toBoundedNumber((localResult.sourceScore * 0.4) + (geminiResult.sourceScore * 0.6), localResult.sourceScore);
+
+    const localLooksClearlyScam =
+        localResult.score <= 25 ||
+        localResult.verdict === 'HIGHLY SUSPICIOUS' ||
+        localResult.suspiciousScore >= 75;
+    const localLooksClearlyLegit =
+        localResult.score >= 80 ||
+        localResult.verdict === 'LIKELY LEGITIMATE' ||
+        localResult.credibilityScore >= 75;
+
+    if (localLooksClearlyScam && geminiResult.score >= 75) {
+        mergedScore = Math.min(mergedScore, 30);
+    }
+
+    if (localLooksClearlyLegit && geminiResult.score <= 25) {
+        mergedScore = Math.max(mergedScore, 70);
+    }
+
+    const verdict = getVerdictFromScore(mergedScore);
+
+    return {
+        score: mergedScore,
+        verdict,
+        analysis: geminiResult.analysis,
+        credibilityScore: mergedCredibility,
+        suspiciousScore: mergedSuspicious,
+        emotionalScore: mergedEmotional,
+        structureScore: mergedStructure,
+        sourceScore: mergedSource,
+        indicators: geminiResult.indicators,
+        recommendations: generateRecommendations(verdict),
+        aiProvider: 'gemini-api',
+        aiModel: geminiModel
+    };
+}
+
+async function postJson(url, payload) {
+    if (typeof fetch === 'function') {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        return {
+            ok: response.ok,
+            status: response.status,
+            text: await response.text()
+        };
+    }
+
+    const https = require('https');
+    const { URL } = require('url');
+    const urlObj = new URL(url);
+    const body = JSON.stringify(payload);
+
+    return new Promise((resolve, reject) => {
+        const request = https.request({
+            hostname: urlObj.hostname,
+            port: urlObj.port || 443,
+            path: `${urlObj.pathname}${urlObj.search || ''}`,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(body)
             }
-        }
+        }, (response) => {
+            let data = '';
+            response.on('data', (chunk) => {
+                data += chunk;
+            });
+            response.on('end', () => {
+                resolve({
+                    ok: response.statusCode >= 200 && response.statusCode < 300,
+                    status: response.statusCode,
+                    text: data
+                });
+            });
+        });
 
-        // If an API key is present (AI Studio), call the Google Generative API directly
-        const geminiModel = process.env.GEMINI_MODEL || process.env.GEMINI_MODEL_ID || null;
-        if (!process.env.GEMINI_SDK_ENABLED || process.env.GEMINI_SDK_ENABLED !== 'true') {
-            if (geminiKey && geminiModel) {
-                try {
-                    const gaUrl = `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(geminiModel)}:generateText?key=${encodeURIComponent(geminiKey)}`;
-                    const payload = JSON.stringify({ prompt: text, max_output_tokens: 512, temperature: 0.2 });
+        request.on('error', reject);
+        request.write(body);
+        request.end();
+    });
+}
 
-                    let resp;
-                    if (typeof fetch === 'function') {
-                        resp = await fetch(gaUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: payload
-                        });
-                    } else {
-                        const https = require('https');
-                        const { URL } = require('url');
-                        const urlObj = new URL(gaUrl);
+async function analyzeTextWithAI(text) {
+    const geminiKey = process.env.GEMINI_API_KEY;
+    const geminiModel = process.env.GEMINI_MODEL || process.env.GEMINI_MODEL_ID || 'gemini-1.5-flash';
+    const localBaseline = performAdvancedAnalysis(text);
 
-                        resp = await new Promise((resolve, reject) => {
-                            const opts = {
-                                hostname: urlObj.hostname,
-                                port: urlObj.port || 443,
-                                path: urlObj.pathname + (urlObj.search || ''),
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-                            };
-
-                            const req = https.request(opts, (res) => {
-                                let data = '';
-                                res.on('data', (chunk) => data += chunk);
-                                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, text: async () => data, json: async () => JSON.parse(data) }));
-                            });
-
-                            req.on('error', (err) => reject(err));
-                            req.write(payload);
-                            req.end();
-                        });
-                    }
-
-                    if (resp && resp.ok) {
-                        let json = null;
-                        try { json = await resp.json(); } catch (e) { json = null; }
-
-                        // Google generative responses often include `candidates` with `output`
-                        let candidateText = null;
-                        if (json) {
-                            if (Array.isArray(json.candidates) && json.candidates[0] && (json.candidates[0].output || json.candidates[0].content)) candidateText = json.candidates[0].output || json.candidates[0].content;
-                            else if (json.output && typeof json.output === 'string') candidateText = json.output;
-                            else if (json.choices && json.choices[0] && (json.choices[0].text || json.choices[0].message)) candidateText = json.choices[0].text || json.choices[0].message;
-                        }
-
-                        if (candidateText) {
-                            return parseAIResponseText(candidateText, text);
-                        }
-                    } else {
-                        const txt = await (resp && resp.text ? resp.text() : Promise.resolve(''));
-                        console.warn('Generative API non-OK:', resp && resp.status, txt);
-                    }
-                } catch (err) {
-                    console.warn('Generative API call failed, falling back:', err && err.message ? err.message : err);
-                }
-            }
-        }
-
-        if (geminiUrl && geminiKey) {
-            try {
-                // Prefer global fetch if available
-                let resp;
-                const payload = JSON.stringify({ prompt: text, max_tokens: 512 });
-
-                if (typeof fetch === 'function') {
-                    resp = await fetch(geminiUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${geminiKey}`
-                        },
-                        body: payload,
-                        timeout: 20000
-                    });
-                } else {
-                    // Fallback to native https request for Node versions without fetch
-                    const https = require('https');
-                    const { URL } = require('url');
-                    const urlObj = new URL(geminiUrl);
-
-                    resp = await new Promise((resolve, reject) => {
-                        const opts = {
-                            hostname: urlObj.hostname,
-                            port: urlObj.port || 443,
-                            path: urlObj.pathname + (urlObj.search || ''),
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Content-Length': Buffer.byteLength(payload),
-                                'Authorization': `Bearer ${geminiKey}`
-                            }
-                        };
-
-                        const req = https.request(opts, (res) => {
-                            let data = '';
-                            res.on('data', (chunk) => data += chunk);
-                            res.on('end', () => {
-                                resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, text: async () => data, json: async () => JSON.parse(data) });
-                            });
-                        });
-
-                        req.on('error', (err) => reject(err));
-                        req.write(payload);
-                        req.end();
-                    });
-                }
-
-                if (!resp.ok) {
-                    const txt = await (resp.text ? resp.text() : Promise.resolve(''));
-                    console.warn('Gemini API returned non-OK:', resp.status, txt);
-                    // Fall through to local analysis
-                } else {
-                    // Parse response and attempt to extract text result
-                    let json;
-                    try { json = await resp.json(); } catch (e) { json = null; }
-
-                    // Common Gemini/LLM response shapes vary; try to find text output
-                    let candidateText = null;
-                    if (json) {
-                        if (typeof json.output === 'string') candidateText = json.output;
-                        else if (Array.isArray(json.candidates) && json.candidates[0] && json.candidates[0].content) candidateText = json.candidates[0].content;
-                        else if (json.choices && json.choices[0] && (json.choices[0].text || json.choices[0].message)) candidateText = json.choices[0].text || json.choices[0].message;
-                    }
-
-                    if (candidateText) {
-                        // Parse free-form LLM text into the same result shape used by this app
-                        const parsed = parseAIResponseText(candidateText, text);
-                        return parsed;
-                    }
-                }
-            } catch (err) {
-                console.warn('Gemini API call failed, falling back to local analysis:', err && err.message ? err.message : err);
-                // continue to fallback
-            }
-        }
-
-        // Fallback: local advanced analysis
+    if (geminiKey) {
         try {
-            // Simulate AI processing time to keep UX consistent
-            await new Promise(resolve => setTimeout(resolve, 1200 + Math.random() * 800));
-            return performAdvancedAnalysis(text);
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent?key=${encodeURIComponent(geminiKey)}`;
+            const prompt = [
+                'You are a misinformation and scam detector.',
+                'Analyze the text and respond ONLY as valid JSON.',
+                'Required keys: score, verdict, analysis, credibilityScore, suspiciousScore, emotionalScore, structureScore, sourceScore, indicators.',
+                'All score fields must be integers from 0 to 100.',
+                'verdict must be one of: HIGHLY SUSPICIOUS, PROCEED WITH CAUTION, LIKELY LEGITIMATE.',
+                'indicators must be an array of at most 6 short strings.',
+                'analysis must be at most 220 characters.',
+                'Return pure JSON only. No markdown, no code fences, no extra text.',
+                'Text to analyze:',
+                text
+            ].join('\n');
+
+            const payload = {
+                contents: [{
+                    parts: [{ text: prompt }]
+                }],
+                generationConfig: {
+                    temperature: 0.1,
+                    topP: 0.9,
+                    maxOutputTokens: 900,
+                    responseMimeType: 'application/json'
+                }
+            };
+
+            const response = await postJson(url, payload);
+
+            if (!response.ok) {
+                console.warn('Gemini API non-OK response:', response.status, response.text);
+            } else {
+                let responseJson = null;
+                try {
+                    responseJson = JSON.parse(response.text);
+                } catch (jsonError) {
+                    console.warn('Gemini raw response could not be parsed as JSON:', jsonError.message);
+                }
+
+                const generatedText = extractGeminiText(responseJson);
+                if (generatedText) {
+                    const parsed = parseAIResponseText(generatedText, text);
+                    const normalized = normalizeAnalysisResult(parsed, 'gemini-api', geminiModel);
+
+                    if (isGeminiResultUsable(normalized)) {
+                        return mergeLocalAndGemini(localBaseline, normalized, geminiModel);
+                    }
+
+                    console.warn('Gemini output did not pass validation; using local fallback.');
+                }
+            }
         } catch (error) {
-            console.error('Analysis Error:', error);
-            throw new Error('AI analysis temporarily unavailable');
+            console.warn('Gemini API call failed, switching to local analysis:', error && error.message ? error.message : error);
         }
+
+        return {
+            ...localBaseline,
+            aiProvider: 'gemini-api+local-fallback',
+            aiModel: geminiModel
+        };
+    }
+
+    try {
+        await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 300));
+        return localBaseline;
+    } catch (error) {
+        console.error('Analysis Error:', error);
+        throw new Error('AI analysis temporarily unavailable');
+    }
 }
 
 // Fallback analysis (calls the same advanced system)
@@ -510,23 +617,70 @@ function extractKeyFindings(text) {
 
 // Fallback parser for non-JSON AI responses
 function parseAIResponseText(aiText, originalText) {
-    // Extract score using regex or default scoring
-    const scoreMatch = aiText.match(/(?:score|rating):\s*(\d+)/i);
-    let score = scoreMatch ? parseInt(scoreMatch[1]) : 50;
-    
-    // Determine verdict based on content keywords
-    let verdict = "PROCEED WITH CAUTION";
-    if (aiText.toLowerCase().includes('suspicious') || aiText.toLowerCase().includes('misleading') || score < 30) {
-        verdict = "HIGHLY SUSPICIOUS";
-    } else if (aiText.toLowerCase().includes('legitimate') || aiText.toLowerCase().includes('credible') || score > 75) {
-        verdict = "LIKELY LEGITIMATE";
+    let parsedJson = null;
+
+    try {
+        parsedJson = JSON.parse(aiText);
+    } catch (error) {
+        parsedJson = null;
     }
-    
+
+    const jsonBlock = aiText.match(/```json\s*([\s\S]*?)```/i);
+
+    if (!parsedJson && jsonBlock && jsonBlock[1]) {
+        try {
+            parsedJson = JSON.parse(jsonBlock[1]);
+        } catch (error) {
+            parsedJson = null;
+        }
+    }
+
+    if (!parsedJson) {
+        const openBraceIndex = aiText.indexOf('{');
+        const closeBraceIndex = aiText.lastIndexOf('}');
+        if (openBraceIndex !== -1 && closeBraceIndex > openBraceIndex) {
+            try {
+                parsedJson = JSON.parse(aiText.slice(openBraceIndex, closeBraceIndex + 1));
+            } catch (error) {
+                parsedJson = null;
+            }
+        }
+    }
+
+    const scoreMatches = [...aiText.matchAll(/(?:"score"|\bscore\b|rating)\s*[:=]\s*(\d{1,3})/gi)];
+    const fallbackScore = scoreMatches.length > 0
+        ? parseInt(scoreMatches[scoreMatches.length - 1][1], 10)
+        : 50;
+    const score = toBoundedNumber(parsedJson && parsedJson.score, fallbackScore);
+
+    let verdict = parsedJson && parsedJson.verdict;
+    if (!verdict) {
+        const lowered = aiText.toLowerCase();
+        if (lowered.includes('highly suspicious') || lowered.includes('misleading') || lowered.includes('scam')) {
+            verdict = 'HIGHLY SUSPICIOUS';
+        } else if (lowered.includes('likely legitimate') || lowered.includes('credible')) {
+            verdict = 'LIKELY LEGITIMATE';
+        } else {
+            verdict = getVerdictFromScore(score);
+        }
+    }
+
+    const analysis = parsedJson && typeof parsedJson.analysis === 'string'
+        ? parsedJson.analysis
+        : aiText;
+
     return {
-        score: Math.min(100, Math.max(0, score)),
+        score,
         verdict,
-        analysis: aiText,
-        indicators: extractKeyFindings(aiText),
+        analysis,
+        credibilityScore: toBoundedNumber(parsedJson && parsedJson.credibilityScore, score),
+        suspiciousScore: toBoundedNumber(parsedJson && parsedJson.suspiciousScore, Math.max(0, 100 - score)),
+        emotionalScore: toBoundedNumber(parsedJson && parsedJson.emotionalScore, 50),
+        structureScore: toBoundedNumber(parsedJson && parsedJson.structureScore, 55),
+        sourceScore: toBoundedNumber(parsedJson && parsedJson.sourceScore, 50),
+        indicators: Array.isArray(parsedJson && parsedJson.indicators) && parsedJson.indicators.length > 0
+            ? parsedJson.indicators.slice(0, 6)
+            : extractKeyFindings(analysis),
         recommendations: generateRecommendations(verdict)
     };
 }
