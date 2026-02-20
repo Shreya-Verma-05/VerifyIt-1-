@@ -217,13 +217,13 @@ function performAdvancedAnalysis(text) {
     const structureScore = analysis.analyzeStructure();
     const sourceScore = analysis.analyzeSourceCredibility();
     
-    // Calculate final score with adjusted weights to emphasize suspicious indicators
+    // Calculate final score with trustworthiness-emphasized weights
     let finalScore = Math.round(
-        (credibilityScore * 0.25) +
-        ((100 - suspiciousScore) * 0.40) +
-        ((100 - emotionalScore) * 0.20) +
+        (credibilityScore * 0.40) +
+        ((100 - suspiciousScore) * 0.28) +
+        ((100 - emotionalScore) * 0.15) +
         (structureScore * 0.10) +
-        (sourceScore * 0.05)
+        (sourceScore * 0.07)
     );
 
     // Strong override rules for obvious scammy patterns so results are unambiguous
@@ -391,12 +391,19 @@ function isGeminiResultUsable(result) {
 }
 
 function mergeLocalAndGemini(localResult, geminiResult, geminiModel) {
-    let mergedScore = toBoundedNumber((localResult.score * 0.35) + (geminiResult.score * 0.65), localResult.score);
+    const baseMergedScore = toBoundedNumber((localResult.score * 0.35) + (geminiResult.score * 0.65), localResult.score);
     const mergedSuspicious = toBoundedNumber((localResult.suspiciousScore * 0.3) + (geminiResult.suspiciousScore * 0.7), localResult.suspiciousScore);
     const mergedCredibility = toBoundedNumber((localResult.credibilityScore * 0.3) + (geminiResult.credibilityScore * 0.7), localResult.credibilityScore);
     const mergedEmotional = toBoundedNumber((localResult.emotionalScore * 0.3) + (geminiResult.emotionalScore * 0.7), localResult.emotionalScore);
     const mergedStructure = toBoundedNumber((localResult.structureScore * 0.4) + (geminiResult.structureScore * 0.6), localResult.structureScore);
     const mergedSource = toBoundedNumber((localResult.sourceScore * 0.4) + (geminiResult.sourceScore * 0.6), localResult.sourceScore);
+    const trustworthinessComposite = toBoundedNumber(
+        (mergedCredibility * 0.7) +
+        (mergedSource * 0.2) +
+        (mergedStructure * 0.1),
+        mergedCredibility
+    );
+    let mergedScore = toBoundedNumber((baseMergedScore * 0.60) + (trustworthinessComposite * 0.40), baseMergedScore);
 
     const localLooksClearlyScam =
         localResult.score <= 25 ||
