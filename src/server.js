@@ -607,6 +607,14 @@ async function startServer() {
     }
 }
 
-startServer();
+// Initialize database for serverless (Vercel)
+initializeDatabase().catch(err => {
+    console.error('Database initialization error:', err);
+});
+
+// Start server only if running directly (not in Vercel serverless)
+if (require.main === module) {
+    startServer();
+}
 
 module.exports = app;
