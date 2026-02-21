@@ -69,6 +69,11 @@ function resetLoadingSteps() {
 function createScoreChart(score) {
     const canvas = document.getElementById('scoreChart');
     if (!canvas) return;
+
+    if (typeof Chart !== 'function') {
+        console.warn('Chart.js unavailable. Falling back to text-only score rendering.');
+        return;
+    }
     
     const ctx = canvas.getContext('2d');
     
@@ -197,11 +202,19 @@ function displayRecommendations(recommendations) {
     });
 }
 
+function getContentTypeLabel(contentType) {
+    if (typeof contentType === 'string' && contentType.toLowerCase() === 'phone') {
+        return 'Phone/SMS';
+    }
+    return 'Text';
+}
+
 // Update verdict display
-function updateVerdictDisplay(verdict, analysis) {
+function updateVerdictDisplay(verdict, analysis, contentType) {
     const verdictIcon = document.getElementById('verdictIcon');
     const verdictText = document.getElementById('verdictText');
     const verdictDescription = document.getElementById('verdictDescription');
+    const scoreLabel = document.getElementById('scoreLabel');
     
     if (!verdictIcon || !verdictText || !verdictDescription) return;
     
@@ -233,7 +246,14 @@ function updateVerdictDisplay(verdict, analysis) {
     verdictIcon.style.color = verdictData.color;
     verdictText.textContent = verdictData.title;
     verdictText.style.color = verdictData.color;
-    verdictDescription.textContent = analysis || verdictData.description;
+    const typeLabel = getContentTypeLabel(contentType);
+    const description = analysis || verdictData.description;
+    verdictDescription.textContent = `[Detected: ${typeLabel}] ${description}`;
+
+    if (scoreLabel) {
+        const normalizedType = typeof contentType === 'string' ? contentType.toLowerCase() : 'text';
+        scoreLabel.textContent = normalizedType === 'phone' ? 'Safety Score' : 'Credibility';
+    }
 }
 
 // Update score display
@@ -292,7 +312,7 @@ function displayVisualResults(result) {
         updateScoreDisplay(result.score);
         
         // Update verdict
-        updateVerdictDisplay(result.verdict, result.analysis);
+        updateVerdictDisplay(result.verdict, result.analysis, result.contentType);
         
         // Calculate and display metrics
         const trustScore = result.credibilityScore || Math.max(0, result.score);

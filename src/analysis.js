@@ -207,8 +207,210 @@ class TextAnalyzer {
     }
 }
 
+function detectAnalysisMode(input) {
+    const raw = String(input || '').trim();
+    if (!raw) return 'text';
+
+    const onlyPhoneCharacters = /^[+\d\s().-]{7,24}$/.test(raw);
+    const digitCount = (raw.match(/\d/g) || []).length;
+    const looksLikeStandalonePhone = onlyPhoneCharacters && digitCount >= 8 && digitCount <= 15;
+
+    if (looksLikeStandalonePhone) {
+        return 'phone';
+    }
+
+    const hasPhoneToken = /(\+?\d[\d\s().-]{7,}\d)|\b(call|whatsapp|missed call|otp|verification code|kyc|upi|bank alert|bank|sim|telecom)\b/i.test(raw);
+    const hasScamToken = /\b(urgent|blocked|suspend|suspended|prize|lottery|reward|refund|claim|click|link|verify now|account locked|pay now|remote access|screen share)\b/i.test(raw);
+    const looksLikeSmsLength = raw.length <= 280;
+
+    if (hasPhoneToken && looksLikeSmsLength) {
+        return 'phone';
+    }
+
+    if (hasPhoneToken && hasScamToken) {
+        return 'phone';
+    }
+
+    return 'text';
+}
+
+class PhoneSpamAnalyzer {
+    constructor(text) {
+        this.originalText = String(text || '');
+        this.text = this.originalText.toLowerCase();
+    }
+
+    calculateSuspicionScore() {
+        const suspiciousPatterns = [
+            { pattern: /\b(otp|one.?time password|verification code|share code|cvv|pin)\b/gi, weight: 22 },
+            { pattern: /\b(kyc|aadhaar|pan|account (?:blocked|suspended|frozen)|sim blocked)\b/gi, weight: 18 },
+            { pattern: /\b(upi|paytm|gpay|phonepe|bank alert|refund|claim now|reward points)\b/gi, weight: 16 },
+            { pattern: /\b(urgent|immediately|within \d+ (?:minutes?|hours?)|final warning|last chance)\b/gi, weight: 18 },
+            { pattern: /\b(click|tap|install|download|apk|remote access|screen share|anydesk|teamviewer)\b/gi, weight: 20 },
+            { pattern: /\b(lottery|winner|won|prize|jackpot|gift|cashback|guaranteed)\b/gi, weight: 16 },
+            { pattern: /https?:\/\/\S+|bit\.ly|tinyurl|shorturl|wa\.me/gi, weight: 18 },
+            { pattern: /\b(call now|missed call|whatsapp now|contact support)\b/gi, weight: 10 }
+        ];
+
+        let total = 0;
+        suspiciousPatterns.forEach(({ pattern, weight }) => {
+            const matches = this.text.match(pattern);
+            if (matches) {
+                total += Math.min(weight * matches.length, weight * 3);
+            }
+        });
+
+        const phoneNumberMatches = this.originalText.match(/\+?\d[\d\s().-]{7,}\d/g) || [];
+        if (phoneNumberMatches.length >= 2) total += 8;
+
+        const exclamations = (this.originalText.match(/!/g) || []).length;
+        if (exclamations >= 2) total += 8;
+
+        const capsRatio = (this.originalText.match(/[A-Z]/g) || []).length / Math.max(this.originalText.length, 1);
+        if (capsRatio > 0.12) total += 10;
+
+        return Math.min(100, Math.round(total));
+    }
+
+    calculateCredibilityScore() {
+        let score = 24;
+
+        if (/\b(customer care|official|support center|toll free|working hours)\b/i.test(this.originalText)) {
+            score += 16;
+        }
+
+        if (/\b(never share otp|do not share pin|fraud awareness|security notice)\b/i.test(this.originalText)) {
+            score += 30;
+        }
+
+        if (/\b(gov\.in|nic\.in|bank\.com|official app|verified business)\b/i.test(this.originalText)) {
+            score += 14;
+        }
+
+        if (/\b(win|prize|lottery|guaranteed|urgent)\b/i.test(this.originalText)) {
+            score -= 20;
+        }
+
+        return Math.max(0, Math.min(100, Math.round(score)));
+    }
+
+    calculateEmotionalManipulation() {
+        let score = 0;
+        const pressurePatterns = [
+            /\b(final warning|immediately|urgent|suspended|blocked)\b/gi,
+            /\b(act now|limited time|last chance|before midnight)\b/gi,
+            /\b(your account|your sim|your bank)\b/gi
+        ];
+
+        pressurePatterns.forEach((pattern) => {
+            const matches = this.text.match(pattern);
+            if (matches) score += Math.min(20, matches.length * 8);
+        });
+
+        return Math.min(100, score);
+    }
+
+    analyzeStructure() {
+        let score = 45;
+        const hasCompleteSentences = /[a-zA-Z]{3,}\s+[a-zA-Z]{3,}/.test(this.originalText);
+        const hasLink = /https?:\/\/\S+/i.test(this.originalText);
+        const hasSecurityAdvisory = /never share otp|do not share pin|security/i.test(this.originalText);
+
+        if (hasCompleteSentences) score += 10;
+        if (hasSecurityAdvisory) score += 20;
+        if (hasLink && /bit\.ly|tinyurl|shorturl/i.test(this.originalText)) score -= 12;
+
+        return Math.max(0, Math.min(100, score));
+    }
+
+    analyzeSourceCredibility() {
+        let score = 28;
+        if (/\b(official|verified|helpline|customer care|website)\b/i.test(this.originalText)) score += 18;
+        if (/\b(gov\.in|nic\.in|\.[a-z]{2,3}\/help)\b/i.test(this.originalText)) score += 14;
+        if (/bit\.ly|tinyurl|shorturl|wa\.me/i.test(this.originalText)) score -= 12;
+        if (/\b(unknown|random|forwarded)\b/i.test(this.originalText)) score -= 10;
+        return Math.max(0, Math.min(100, score));
+    }
+
+    generateIndicators(suspiciousScore, credibilityScore, emotionalScore) {
+        const indicators = [];
+
+        if (suspiciousScore >= 60) indicators.push('⚠ High phone scam pattern match');
+        if (/\b(otp|pin|cvv)\b/i.test(this.originalText)) indicators.push('⚠ Sensitive credential request detected');
+        if (/https?:\/\/\S+|bit\.ly|tinyurl|shorturl/i.test(this.originalText)) indicators.push('⚠ Link-based redirection pattern found');
+        if (/\b(urgent|final warning|blocked|suspended)\b/i.test(this.originalText)) indicators.push('⚠ Fear/urgency pressure language found');
+        if (credibilityScore >= 60) indicators.push('✓ Contains consumer safety style language');
+        if (emotionalScore < 25 && suspiciousScore < 35) indicators.push('✓ Low manipulation tone in phone content');
+
+        return indicators.length > 0 ? indicators.slice(0, 6) : ['ℹ Phone-content analysis completed'];
+    }
+
+    generateDetailedAnalysis(score, verdict) {
+        if (verdict === 'HIGHLY SUSPICIOUS') {
+            return 'This phone-related content matches common call/SMS scam patterns (urgency, credential requests, or suspicious links). Avoid responding or sharing sensitive details.';
+        }
+        if (verdict === 'LIKELY LEGITIMATE') {
+            return 'This phone-related content shows lower-risk traits and fewer scam indicators, but still verify the sender using official channels before taking action.';
+        }
+        return 'This phone-related content has mixed signals. Verify through official customer-care numbers or the provider’s official app/website before acting.';
+    }
+}
+
+function performPhoneAdvancedAnalysis(text) {
+    const analyzer = new PhoneSpamAnalyzer(text);
+    const suspiciousScore = analyzer.calculateSuspicionScore();
+    const credibilityScore = analyzer.calculateCredibilityScore();
+    const emotionalScore = analyzer.calculateEmotionalManipulation();
+    const structureScore = analyzer.analyzeStructure();
+    const sourceScore = analyzer.analyzeSourceCredibility();
+
+    let finalScore = Math.round(
+        (credibilityScore * 0.34) +
+        ((100 - suspiciousScore) * 0.36) +
+        ((100 - emotionalScore) * 0.14) +
+        (structureScore * 0.08) +
+        (sourceScore * 0.08)
+    );
+
+    const hasCredentialRequest = /\b(otp|pin|cvv|password|verification code)\b/i.test(text);
+    const hasUrgency = /\b(urgent|immediately|final warning|last chance|blocked|suspended)\b/i.test(text);
+    const hasShortLink = /bit\.ly|tinyurl|shorturl|wa\.me/i.test(text);
+    const hasPrizeHook = /\b(lottery|prize|winner|reward|cashback)\b/i.test(text);
+    const hasRemoteAccess = /\b(anydesk|teamviewer|screen share|remote access)\b/i.test(text);
+
+    if ((hasCredentialRequest && hasUrgency) || (hasShortLink && hasUrgency)) {
+        finalScore = Math.min(finalScore, 15);
+    }
+    if (hasPrizeHook && (hasShortLink || hasUrgency)) {
+        finalScore = Math.min(finalScore, 18);
+    }
+    if (hasRemoteAccess) {
+        finalScore = Math.min(finalScore, 10);
+    }
+
+    let verdict = 'PROCEED WITH CAUTION';
+    if (finalScore < 35) verdict = 'HIGHLY SUSPICIOUS';
+    else if (finalScore > 72) verdict = 'LIKELY LEGITIMATE';
+
+    return {
+        score: Math.max(0, Math.min(100, finalScore)),
+        verdict,
+        analysis: analyzer.generateDetailedAnalysis(finalScore, verdict),
+        credibilityScore,
+        suspiciousScore,
+        emotionalScore,
+        structureScore,
+        sourceScore,
+        indicators: analyzer.generateIndicators(suspiciousScore, credibilityScore, emotionalScore),
+        recommendations: generateRecommendations(verdict, 'phone'),
+        aiProvider: 'local-heuristic',
+        aiModel: 'verifyit-v3-local-phone',
+        contentType: 'phone'
+    };
+}
+
 // Advanced AI-like analysis system
-function performAdvancedAnalysis(text) {
+function performTextAdvancedAnalysis(text) {
     const analysis = new TextAnalyzer(text);
     
     const suspiciousScore = analysis.calculateSuspicionScore();
@@ -289,8 +491,17 @@ function performAdvancedAnalysis(text) {
         indicators: indicators,
         recommendations: generateRecommendations(verdict),
         aiProvider: 'local-heuristic',
-        aiModel: 'verifyit-v3-local'
+        aiModel: 'verifyit-v3-local',
+        contentType: 'text'
     };
+}
+
+function performAdvancedAnalysis(text) {
+    const mode = detectAnalysisMode(text);
+    if (mode === 'phone') {
+        return performPhoneAdvancedAnalysis(text);
+    }
+    return performTextAdvancedAnalysis(text);
 }
 
 function toBoundedNumber(value, defaultValue = 50, min = 0, max = 100) {
@@ -343,6 +554,10 @@ function normalizeAnalysisResult(baseResult, provider, model) {
         ? baseResult.indicators
         : extractKeyFindings(analysis);
 
+    const contentType = baseResult && typeof baseResult.contentType === 'string'
+        ? baseResult.contentType.toLowerCase()
+        : 'text';
+
     return {
         score,
         verdict,
@@ -353,9 +568,10 @@ function normalizeAnalysisResult(baseResult, provider, model) {
         structureScore,
         sourceScore,
         indicators,
-        recommendations: generateRecommendations(verdict),
+        recommendations: generateRecommendations(verdict, contentType),
         aiProvider: provider,
-        aiModel: model
+        aiModel: model,
+        contentType: contentType === 'phone' ? 'phone' : 'text'
     };
 }
 
@@ -434,10 +650,33 @@ function mergeLocalAndGemini(localResult, geminiResult, geminiModel) {
         structureScore: mergedStructure,
         sourceScore: mergedSource,
         indicators: geminiResult.indicators,
-        recommendations: generateRecommendations(verdict),
+        recommendations: generateRecommendations(verdict, localResult.contentType || geminiResult.contentType || 'text'),
         aiProvider: 'gemini-api',
-        aiModel: geminiModel
+        aiModel: geminiModel,
+        contentType: localResult.contentType || geminiResult.contentType || 'text'
     };
+}
+
+function buildGeminiPromptForMode(text, mode) {
+    const modeLine = mode === 'phone'
+        ? 'Mode: PHONE SPAM ANALYSIS (calls/SMS/number-based scam detection).'
+        : 'Mode: TEXT MISINFORMATION/SPAM ANALYSIS.';
+
+    return [
+        'You are a fraud, misinformation, and spam detector.',
+        modeLine,
+        'Analyze the content and respond ONLY as valid JSON.',
+        'Required keys: score, verdict, analysis, credibilityScore, suspiciousScore, emotionalScore, structureScore, sourceScore, indicators, contentType.',
+        'All score fields must be integers from 0 to 100.',
+        'verdict must be one of: HIGHLY SUSPICIOUS, PROCEED WITH CAUTION, LIKELY LEGITIMATE.',
+        'contentType must be either "text" or "phone".',
+        'indicators must be an array of at most 6 short strings.',
+        'analysis must be at most 220 characters.',
+        'Scoring rule: lower score means riskier/suspicious; higher score means more trustworthy.',
+        'Return pure JSON only. No markdown, no code fences, no extra text.',
+        'Content to analyze:',
+        text
+    ].join('\n');
 }
 
 async function postJson(url, payload) {
@@ -493,22 +732,12 @@ async function analyzeTextWithAI(text) {
     const geminiKey = process.env.GEMINI_API_KEY;
     const geminiModel = process.env.GEMINI_MODEL || process.env.GEMINI_MODEL_ID || 'gemini-1.5-flash';
     const localBaseline = performAdvancedAnalysis(text);
+    const mode = localBaseline.contentType === 'phone' ? 'phone' : 'text';
 
     if (geminiKey) {
         try {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent?key=${encodeURIComponent(geminiKey)}`;
-            const prompt = [
-                'You are a misinformation and scam detector.',
-                'Analyze the text and respond ONLY as valid JSON.',
-                'Required keys: score, verdict, analysis, credibilityScore, suspiciousScore, emotionalScore, structureScore, sourceScore, indicators.',
-                'All score fields must be integers from 0 to 100.',
-                'verdict must be one of: HIGHLY SUSPICIOUS, PROCEED WITH CAUTION, LIKELY LEGITIMATE.',
-                'indicators must be an array of at most 6 short strings.',
-                'analysis must be at most 220 characters.',
-                'Return pure JSON only. No markdown, no code fences, no extra text.',
-                'Text to analyze:',
-                text
-            ].join('\n');
+            const prompt = buildGeminiPromptForMode(text, mode);
 
             const payload = {
                 contents: [{
@@ -571,7 +800,33 @@ function performFallbackAnalysis(text) {
     return performAdvancedAnalysis(text);
 }
 
-function generateRecommendations(verdict) {
+function generateRecommendations(verdict, contentType = 'text') {
+    if (contentType === 'phone') {
+        switch (verdict) {
+            case 'HIGHLY SUSPICIOUS':
+                return [
+                    'Do not call back or reply to this number/content',
+                    'Never share OTP, PIN, CVV, or screen access',
+                    'Block/report the number in your phone and carrier app',
+                    'Verify claims only via official website/app numbers'
+                ];
+            case 'LIKELY LEGITIMATE':
+                return [
+                    'Message seems lower-risk, but verify sender identity first',
+                    'Use official saved numbers for any sensitive actions',
+                    'Avoid clicking shortened links from unknown sources',
+                    'Keep fraud alerts enabled in your banking/UPI apps'
+                ];
+            default:
+                return [
+                    'Treat as unverified and confirm via official channels',
+                    'Do not share credentials or install remote-access apps',
+                    'Check number reputation in trusted spam-report tools',
+                    'If financial, contact provider from its official app/site'
+                ];
+        }
+    }
+
     switch (verdict) {
         case 'HIGHLY SUSPICIOUS':
             return [
@@ -676,6 +931,10 @@ function parseAIResponseText(aiText, originalText) {
         ? parsedJson.analysis
         : aiText;
 
+    const resolvedContentType = parsedJson && typeof parsedJson.contentType === 'string' && parsedJson.contentType.toLowerCase() === 'phone'
+        ? 'phone'
+        : detectAnalysisMode(originalText);
+
     return {
         score,
         verdict,
@@ -685,10 +944,11 @@ function parseAIResponseText(aiText, originalText) {
         emotionalScore: toBoundedNumber(parsedJson && parsedJson.emotionalScore, 50),
         structureScore: toBoundedNumber(parsedJson && parsedJson.structureScore, 55),
         sourceScore: toBoundedNumber(parsedJson && parsedJson.sourceScore, 50),
+        contentType: resolvedContentType,
         indicators: Array.isArray(parsedJson && parsedJson.indicators) && parsedJson.indicators.length > 0
             ? parsedJson.indicators.slice(0, 6)
             : extractKeyFindings(analysis),
-        recommendations: generateRecommendations(verdict)
+        recommendations: generateRecommendations(verdict, resolvedContentType)
     };
 }
 
