@@ -28,8 +28,17 @@ const PORT = process.env.PORT || 3000;
 const HIGH_RISK_THRESHOLD = Number(process.env.HIGH_RISK_THRESHOLD) || 25;
 const FRAUD_ALERT_COOLDOWN = Number(process.env.FRAUD_ALERT_COOLDOWN) || 3600000;
 
-// Middleware
-app.use(cors());
+// Middleware - Enhanced CORS for production
+const corsOptions = {
+    origin: true, // Allow all origins (or specify your production domain)
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    credentials: true,
+    optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Handle preflight for all routes
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, '../public')));
 
